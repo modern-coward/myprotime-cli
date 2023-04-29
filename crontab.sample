@@ -1,0 +1,4 @@
+20 08 * * mon,tue,wed,thu,fri /usr/local/bin/myprotime-wrapper --clock
+20 12 * * mon,tue,wed,thu,fri /usr/local/bin/myprotime-wrapper --clock
+20 13 * * mon,tue,wed,thu,fri /usr/local/bin/myprotime-wrapper --clock
+20 17 * * mon,tue,wed,thu,fri /usr/local/bin/myprotime-wrapper --clock

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+export LANG=C
+
+# Ensure this does not run on Saturday or Sunday:
+[[ "$(date +%A)" =~ ^(Saturday|Sunday)$ ]] && exit 0
+
+# Sleep up to 10 minutes:
+sleep $(($RANDOM%600))
+
+myprotime "$@"

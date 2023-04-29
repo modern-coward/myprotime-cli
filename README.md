@@ -25,3 +25,7 @@ Copy myprotime and myprotime-wrapper wherever you see fit, typically `/usr/local
 ## Configuration
 
 Copy config.sample as `~/.config/myprotime` and customize it. 
+
+## Scheduling
+
+crontab.sample and myprotime-wrapper should help.
