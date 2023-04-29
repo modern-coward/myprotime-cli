@@ -1,0 +1,17 @@
+# customize and store this file in ~/.config/myprotime:
+
+# Use Chrome via Selenium RemoteWebDriver (e.g. Selenium Grid):
+selenium_remote_url: http://localhost:4444/wd/hub
+# Use your own Chrome browser:
+selenium_remote_url: null  # Default
+
+# MyProTime URL and user credentials:
+url: https://company.myprotime.eu/
+username: your.username@your-company.com # Mandatory
+password: YoUrPaSsWoRdHeRe               # Mandatory
+
+# Load page timeout
+timeout: 15
+
+# Pattern to determine whether you are expected to work today:
+nonworkingday: '\bOFF/WE\b'

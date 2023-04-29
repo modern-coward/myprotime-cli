@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+
+import os
+import re
+import sys
+import yaml
+import math
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.expected_conditions import presence_of_element_located
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+
+KNOWN_ELEMENTS = {
+	'username': (By.NAME, 'username'),
+	'password': (By.NAME, 'password'),
+	'let_me_in': (By.NAME, 'commit'),
+	'user_menu': (By.ID, 'hub__username'),
+	'sign_out': (By.ID, 'hub__signout'),
+	'clock_in_out': (By.XPATH, '//button[@data-testid="clockingWidget_clockInOutBtn"]'),
+	'clock_confirm': (By.XPATH, '//button[@data-testid="clockingWidget_clockNoReason"]'),
+	'last_clocking': (By.XPATH, '//button[@data-testid="last-clocking"]'),
+	'day_actions': (By.XPATH, '//button[@data-testid="day-detail-options"]'),
+	'previous_day': (By.XPATH, '//button[@data-testid="previous_day"]'),
+	'next_day': (By.XPATH, '//button[@data-testid="next_day"]'),
+	'clocking_info': (By.XPATH, '//span[starts-with(@class, "ClockingItem-module_clockingInfo_")]'),
+	'clocking_time': (By.XPATH, 'span[starts-with(@class, "ClockingItem-module_time_")]'),
+	'clocking_time2': (By.XPATH, '//span[starts-with(@class, "ClockingItem-module_time_")]'),
+	'clocking_in': (By.XPATH, 'span[starts-with(@class, "ClockingItem-module_in_")]'),
+	'clocking_out': (By.XPATH, 'span[starts-with(@class, "ClockingItem-module_out_")]'),
+	'clocking_del': (By.XPATH, 'span[contains(@class, "ClockingItem-module_removal")]'),
+	'absence':  (By.XPATH, '//div[starts-with(@class, "DayDetailContent-module_contentWrapper")]//a[starts-with(@data-testid, "Absence")]'),
+	'schedule': (By.XPATH, '//div[starts-with(@class, "DayDetailContent-module_contentWrapper")]//ul[starts-with(@class, "ScheduleTotals-module_scheduleTotals")]'),
+	'close': (By.XPATH, '//button[@data-testid="close"]'),
+}
+
+# Open and parse configuration file:
+config_filepath = os.path.expanduser('~/.config/myprotime')
+with open(config_filepath, 'r') as config_filedesc:
+	config = yaml.safe_load(config_filedesc)
+myprotime_url = config.get('url', 'https://company.myprotime.eu/')
+load_page_timeout = config.get('timeout', 15)
+non_working_day_re = config.get('nonworkingday', r'\bOFF/WE\b')
+
+if selenium_remote_url := config.get('selenium_remote_url'):
+	browser_options = webdriver.ChromeOptions()
+	browser_options.add_argument('--no-sandbox')
+	browser_options.add_argument('--disable-gpu')
+	#browser_options.add_argument('--disable-dev-shm-usage')
+	browser_driver = webdriver.Remote(
+		command_executor=selenium_remote_url,
+		options=browser_options
+	)
+else:
+	# Non-headless browsers need a display:
+	os.environ.setdefault('DISPLAY', ':0')
+	browser_driver = webdriver.Chrome()
+browser_driver.maximize_window()
+
+# Helpers:
+def get(elmt):
+	return browser_driver.find_element(*KNOWN_ELEMENTS[elmt])
+
+def wait_get(elmt, timeout=load_page_timeout):
+	return WebDriverWait(browser_driver, timeout).until(presence_of_element_located(KNOWN_ELEMENTS[elmt]))
+
+def wait_get_timeout(elmt, timeout):
+	try:
+		return wait_get(elmt, timeout)
+	except TimeoutException:
+		pass
+	return False
+
+# Functions
+
+def sign_out():
+	get('user_menu').click()
+	get('sign_out').click()
+	wait_get('let_me_in')
+
+def get_clocking_info():
+	clockings = []
+	for clocking_info in browser_driver.find_elements(*KNOWN_ELEMENTS['clocking_info']):
+		clocking_time = clocking_info.find_element(*KNOWN_ELEMENTS['clocking_time'])
+		clocking_type = None
+		clocking_status = None
+		try:
+			try:
+				clocking_info.find_element(*KNOWN_ELEMENTS['clocking_in'])
+				clocking_type = 'in'
+			except NoSuchElementException:
+				clocking_info.find_element(*KNOWN_ELEMENTS['clocking_out'])
+				clocking_type = 'out'
+		except NoSuchElementException:
+			clocking_type = '?'
+		try:
+			clocking_info.find_element(*KNOWN_ELEMENTS['clocking_del'])
+			clocking_status = 'removed'
+		except NoSuchElementException:
+			pass
+
+		clockings.append((clocking_time.text, clocking_type, clocking_status))
+	return clockings
+
+def get_absence_event():
+	absence_element = wait_get_timeout('absence', short_timeout)
+	if absence_element is not False:
+		try:
+			absence_type = str(absence_element.get_attribute('data-testid')).split('-', 1)
+			absence_kind = 'absence request' if absence_type[0] == 'AbsenceRequest' else 'absence'
+			return (absence_kind, absence_type[1])
+		except Exception:
+			return True
+	else:
+		return False
+
+def absence_matters(absence):
+	if absence is False or absence is True:
+		return absence
+	return not absence[1].startswith('@')
+
+def is_non_working_day(schedule):
+	return re.search(non_working_day_re, schedule.text, flags=re.MULTILINE)
+
+# Actual work:
+stay = '--stay' in sys.argv
+clock = '--clock' in sys.argv
+list_clocking = '--list' in sys.argv
+
+short_timeout = math.ceil(load_page_timeout / 3)
+try:
+	# Browse to the home/login page:
+	browser_driver.get(myprotime_url)
+	let_me_in_button = wait_get('let_me_in')
+	# Log in:
+	get('username').send_keys(config['username'])
+	get('password').send_keys(config['password'])
+	let_me_in_button.click()
+	# Check today's details:
+	wait_get('last_clocking').click()
+	absence = get_absence_event()
+	if absence:
+		print('There is an absence event today: %s' % str(absence))
+		if clock and absence_matters(absence):
+			clock = False
+			print('Clocking skipped')
+	# At this stage, we know there is no absence event... but are we supposed to work today?
+	schedule = wait_get_timeout('schedule', short_timeout)
+	if schedule:
+		if clock and is_non_working_day(schedule):
+			clock = False
+			print('Clocking skipped')
+	if list_clocking:
+		clockings = []
+		if wait_get_timeout('clocking_time2', short_timeout) is not False:
+			time.sleep(2)
+			clockings = get_clocking_info()
+		print(clockings)
+	get('close').click()
+	if clock:
+		wait_get('clock_in_out').click()
+		wait_get('clock_confirm').click()
+
+except Exception as e:
+	print(repr(e))
+	# Problem? Do NOT close the browser.
+	stay = True
+
+# Sign out:
+if not stay:
+	sign_out()
+	browser_driver.close()
+	time.sleep(load_page_timeout)
+	browser_driver.quit()
